@@ -1,0 +1,35 @@
+<h1>Hello, {{.UserBase.Name}}!</h1>
+<p>You are {{.UserBase.Age}} years old.</p>
+<p>Bio: {{.UserBase.Bio}}</p>
+<p>Address: {{.Address}}</p>
+<h3>{{.Name}}'s Pets</h3>
+{{if .Animals}}
+<ul>{{range .Animals}}
+    <li>{{.}}</li>
+    {{end}}
+</ul>
+{{else}}
+<p>{{.Name}} has no pets... SO SAD!!!</p>
+{{end}}
+
+{{if .Siblings }}
+<h3>{{.Name}}'s Siblings</h3>
+<ul>{{range $key, $value := .Siblings}}
+    <li>My {{$value.Bio}}'s name is {{$value.Name}} and is {{$value.Age}} years old ({{$key}})</li>
+    {{end}}
+</ul>
+<ul>{{range .Siblings}}<li>{{.}}</li>{{end}}
+</ul>
+{{else}}
+<h3>{{.Name}} has no siblings... ☹️</h3>
+{{end}}
+
+<script>
+const user = {
+    name: {{.Name}},
+    age: {{.Age}},
+    bio: {{.Bio}},
+    address: {{.Address}},
+};
+console.log(user);
+</script>
