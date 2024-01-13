@@ -8,6 +8,10 @@ import (
 	"net/http"
 )
 
+type Template struct {
+	htmlTpl *template.Template
+}
+
 func Must(t Template, err error) Template {
 	if err != nil {
 		panic(err)
@@ -15,8 +19,8 @@ func Must(t Template, err error) Template {
 	return t
 }
 
-func ParseFS(fs fs.FS, path string) (Template, error) {
-	tpl, err := template.ParseFS(fs, path)
+func ParseFS(fs fs.FS, path ...string) (Template, error) {
+	tpl, err := template.ParseFS(fs, path...)
 	if err != nil {
 		return Template{}, fmt.Errorf("error parsing template: %v", err)
 	}
@@ -29,10 +33,6 @@ func Parse(filepath string) (Template, error) {
 		return Template{}, fmt.Errorf("error parsing template: %v", err)
 	}
 	return Template{htmlTpl: tpl}, nil
-}
-
-type Template struct {
-	htmlTpl *template.Template
 }
 
 func (t Template) Execute(w http.ResponseWriter, data interface{}) {

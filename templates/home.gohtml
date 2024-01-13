@@ -1,2 +1,17 @@
-<h1>Welcome to my awesome site!</h1>
-{{ .Name }}
+{{template "header" .}}
+
+<div class="px-6">
+    <h1 class="py-4 text-4xl semibold tracking-tight">
+        Welcome to my awesome site!
+    </h1>
+{{template "lorem-ipsum"}}
+</div>
+
+{{template "footer" .}}
+
+{{define "lorem-ipsum"}}
+<div class="flow-root">
+    <p class="text-2xl">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec a diam lectus. Sed sit amet ipsum mauris. Maecenas congue ligula ac quam viverra nec consectetur ante hendrerit. Donec et mollis dolor. Praesent et diam eget libero egestas mattis sit amet vitae augue.</p>
+</div>
+
+{{end}}

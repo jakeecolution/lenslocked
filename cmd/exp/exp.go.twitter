@@ -1,0 +1,237 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"os"
+	"time"
+
+	_ "github.com/jackc/pgx/v4/stdlib"
+	"github.com/joho/godotenv"
+	"golang.org/x/crypto/bcrypt"
+)
+
+func HashPassword(password string) string {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	CheckErr(err)
+	return string(hash)
+}
+
+func CheckPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	CheckErr(err)
+	return err == nil
+}
+
+type PostgresConfig struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Database string
+	SSLMode  bool
+}
+
+func (cfg PostgresConfig) DSN() string {
+	ssl := "disable"
+	if cfg.SSLMode {
+		ssl = "enable"
+	}
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database, ssl)
+}
+
+func CheckErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+type UserRow struct {
+	ID             int
+	Name           string
+	Handle         string
+	Email          string
+	HashedPassword string `db:"hashed_password"`
+}
+
+type TweetRow struct {
+	TID        int
+	UserID     int `db:"user_id"`
+	Body       string
+	Posted     *time.Time
+	LastEdited *time.Time `db:"last_edited"`
+	Deleted    bool
+}
+
+type LikeRow struct {
+	TID    int
+	UserID int `db:"user_id"`
+	ID     int
+}
+
+type FollowRow struct {
+	UserID  int   `db:"user_id"`
+	Follows []int `db:"follows"`
+}
+
+type ReplyRow struct {
+	TID        int
+	UserID     int `db:"user_id"`
+	ReplyTo    int `db:"reply_to"`
+	ID         int
+	Posted     *time.Time
+	LastEdited *time.Time `db:"last_edited"`
+	Deleted    bool
+}
+
+func InsertUser(db *sql.DB, name string, handle string, email string, password string) int {
+	row := db.QueryRow(`INSERT INTO users (name, handle, email, hashed_password) VALUES ($1, $2, $3, $4) RETURNING id;`, name, handle, email, HashPassword(password))
+	var id int
+	err := row.Scan(&id)
+	CheckErr(err)
+	return id
+}
+
+func main() {
+	err := godotenv.Load(".credentials.env")
+	CheckErr(err)
+	pdsn := PostgresConfig{
+		Host:     os.Getenv("POSTGRES_HOST"),
+		Port:     os.Getenv("POSTGRES_PORT"),
+		User:     os.Getenv("POSTGRES_USER"),
+		Password: os.Getenv("POSTGRES_PASSWORD"),
+		Database: os.Getenv("POSTGRES_DB"),
+		SSLMode:  false,
+	}
+
+	db, err := sql.Open("pgx", pdsn.DSN())
+	CheckErr(err)
+	defer db.Close()
+	err = db.Ping()
+	CheckErr(err)
+	fmt.Println("Connected to database")
+	_, err = db.Exec(`CREATE SCHEMA IF NOT EXISTS twitter;
+	SET search_path TO twitter;
+	CREATE TABLE IF NOT EXISTS users (
+		id SERIAL PRIMARY KEY,
+		name TEXT,
+		handle VARCHAR(70),
+		email TEXT NOT NULL UNIQUE,
+		hashed_password TEXT NOT NULL
+	  );
+	  
+	  CREATE TABLE IF NOT EXISTS tweets (
+		id SERIAL PRIMARY KEY,
+		user_id INT NOT NULL,
+		body TEXT NOT NULL,
+		posted TIMESTAMP NOT NULL DEFAULT NOW(),
+		last_edited TIMESTAMP NULL,
+		CONSTRAINT fk_user
+		  FOREIGN KEY(user_id)
+		  REFERENCES users(id)
+	  );
+	  
+	  CREATE TABLE IF NOT EXISTS likes ( 
+		id SERIAL PRIMARY KEY,
+		user_id INT NOT NULL,
+		tweet_id INT NOT NULL,
+		CONSTRAINT fk_user
+		  FOREIGN KEY(user_id)
+		  REFERENCES users(id),
+		CONSTRAINT fk_tweet
+		  FOREIGN KEY(tweet_id)
+		  REFERENCES tweets(id)
+	  );
+	  CREATE TABLE IF NOT EXISTS follows (
+		user_id INT NOT NULL,
+		follows INT [] NOT NULL,
+		CONSTRAINT fk_user
+		  FOREIGN KEY(user_id)
+		  REFERENCES users(id)
+	  );
+	  CREATE TABLE IF NOT EXISTS replies (
+		id SERIAL PRIMARY KEY,
+		user_id INT NOT NULL,
+		tweet_id INT NOT NULL,
+		body TEXT NOT NULL,
+		reply_to INT, -- ReplyId in case you want to reply to a reply instead...
+		posted TIMESTAMP NOT NULL DEFAULT NOW(),
+		last_edited TIMESTAMP NULL,
+		CONSTRAINT fk_user
+		  FOREIGN KEY(user_id)
+		  REFERENCES users(id),
+		CONSTRAINT fk_tweet
+		  FOREIGN KEY(tweet_id)
+		  REFERENCES tweets(id)
+	  );
+		
+		`)
+
+	CheckErr(err)
+	fmt.Println("Created twitter schema tables")
+	superuser, superpass := os.Getenv("SUPERUSER_EMAIL"), os.Getenv("SUPERUSER_PASSWORD")
+	row := db.QueryRow("SELECT id FROM users WHERE email = $1;", superuser)
+	var suid int
+	err = row.Scan(&suid)
+
+	if err == sql.ErrNoRows || err != nil {
+		fmt.Println("Superuser doesn't exist, creating...")
+		suid = InsertUser(db, "Jake Bryan", "tweetmaster", superuser, superpass)
+
+	} else {
+		fmt.Println("Superuser exists, skipping...")
+	}
+	res, err := db.Query("SELECT handle, email FROM users;")
+	var flag bool
+	CheckErr(err)
+	defer res.Close()
+	for res.Next() {
+		out := UserRow{}
+		err := res.Scan(&out.Handle, &out.Email)
+		if err != nil {
+			panic(err)
+		}
+		if out.Email == "jake@jakebryan.me" {
+			flag = true
+		}
+		fmt.Println("User found: ")
+		fmt.Println(out.Handle, out.Email)
+	}
+	if !flag {
+		fmt.Println("User not found, creating...")
+		myid := InsertUser(db, "Jake Bryan", "ecojake91", "jake@jakebryan.me", "myp@ssw0rd")
+		fmt.Println("Created user with id: ", myid)
+		_, err = db.Exec(`INSERT INTO follows (user_id, follows) VALUES ($1, $2);`, myid, []int{suid})
+		CheckErr(err)
+	}
+	var tids []int
+	for i := 0; i < 10; i++ {
+		row := db.QueryRow(`INSERT INTO tweets (user_id, body) VALUES ($1, $2) RETURNING id;`, suid, fmt.Sprintf("This is tweet number %d", i))
+		var tid int
+		err := row.Scan(&tid)
+		CheckErr(err)
+		tids = append(tids, tid)
+		_, err = db.Exec(`INSERT INTO likes (user_id, tweet_id) VALUES ($1, $2);`, suid, tid)
+		CheckErr(err)
+		_, err = db.Exec(`INSERT INTO replies (user_id, tweet_id, body) VALUES ($1, $2, $3);`, suid, tid, "Your mom says hi")
+		CheckErr(err)
+	}
+	fmt.Println("Created tweets with ids: ", tids)
+	for _, tid := range tids {
+		var likes int
+		row := db.QueryRow(`SELECT COUNT(*) FROM likes WHERE tweet_id = $1;`, tid)
+		err := row.Scan(&likes)
+		CheckErr(err)
+		fmt.Printf("Tweet %d has %d likes\n", tid, likes)
+		rows, err := db.Query(`SELECT body FROM replies WHERE tweet_id = $1;`, tid)
+		CheckErr(err)
+		defer rows.Close()
+		for rows.Next() {
+			var body string
+			err := rows.Scan(&body)
+			CheckErr(err)
+			fmt.Printf("Tweet %d has reply: %s\n", tid, body)
+		}
+	}
+}

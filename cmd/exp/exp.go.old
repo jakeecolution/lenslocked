@@ -1,0 +1,160 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"os"
+
+	_ "github.com/jackc/pgx/v4/stdlib"
+	"github.com/joho/godotenv"
+	"golang.org/x/crypto/bcrypt"
+)
+
+func HashPassword(password string) string {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	CheckErr(err)
+	return string(hash)
+}
+
+func CheckPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	CheckErr(err)
+	return err == nil
+}
+
+type PostgresConfig struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Database string
+	SSLMode  bool
+}
+
+func (cfg PostgresConfig) DSN() string {
+	ssl := "disable"
+	if cfg.SSLMode {
+		ssl = "enable"
+	}
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database, ssl)
+}
+
+func CheckErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+type UserRow struct {
+	ID             int
+	Name           string
+	Email          string
+	HashedPassword string `db:"hashed_password"`
+}
+
+type OrderRow struct {
+	ID          int
+	UserID      int    `db:"user_id"`
+	Amount      int    `db:"amount"`
+	Description string `db:"description"`
+}
+
+func InsertUser(db *sql.DB, name string, email string, password string) int {
+	row := db.QueryRow(`INSERT INTO users (name, email, hashed_password) VALUES ($1, $2, $3) RETURNING id;`, name, email, HashPassword(password))
+	var id int
+	err := row.Scan(&id)
+	CheckErr(err)
+	return id
+}
+
+func main() {
+	err := godotenv.Load(".credentials.env")
+	CheckErr(err)
+	pdsn := PostgresConfig{
+		Host:     os.Getenv("POSTGRES_HOST"),
+		Port:     os.Getenv("POSTGRES_PORT"),
+		User:     os.Getenv("POSTGRES_USER"),
+		Password: os.Getenv("POSTGRES_PASSWORD"),
+		Database: os.Getenv("POSTGRES_DB"),
+		SSLMode:  false,
+	}
+
+	db, err := sql.Open("pgx", pdsn.DSN())
+	CheckErr(err)
+	defer db.Close()
+	err = db.Ping()
+	CheckErr(err)
+	fmt.Println("Connected to database")
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS users (
+		id SERIAL PRIMARY KEY,
+		name TEXT,
+		email TEXT NOT NULL UNIQUE,
+		hashed_password TEXT NOT NULL
+	  );
+	  
+	  CREATE TABLE IF NOT EXISTS orders (
+		id SERIAL PRIMARY KEY,
+		user_id INT NOT NULL,
+		amount INT,
+		description TEXT,
+		CONSTRAINT fk_user
+		  FOREIGN KEY(user_id)
+		  REFERENCES users(id)
+	  );`)
+	CheckErr(err)
+	fmt.Println("Created tables")
+	superuser, superpass := os.Getenv("SUPERUSER_EMAIL"), os.Getenv("SUPERUSER_PASSWORD")
+	row := db.QueryRow("SELECT id FROM users WHERE email = $1;", superuser)
+	var suid int
+	err = row.Scan(&suid)
+
+	if err == sql.ErrNoRows || err != nil {
+		fmt.Println("Superuser doesn't exist, creating...")
+		_, err = db.Exec("INSERT INTO users (name, email, hashed_password) VALUES ($1, $2, $3);", "Superuser", superuser, HashPassword(superpass))
+		CheckErr(err)
+	} else {
+		fmt.Println("Superuser exists, skipping...")
+	}
+	res, err := db.Query("SELECT id, email, hashed_password FROM users;")
+	var flag bool
+	CheckErr(err)
+	defer res.Close()
+	for res.Next() {
+		out := UserRow{}
+		err := res.Scan(&out.ID, &out.Email, &out.HashedPassword)
+		if err != nil {
+			panic(err)
+		}
+		if out.Email == "jake@jakebryan.me" {
+			flag = true
+		}
+		fmt.Println("User found: ")
+		fmt.Println(out.ID, out.HashedPassword, out.Email)
+	}
+	if !flag {
+		fmt.Println("User not found, creating...")
+		myid := InsertUser(db, "Jake Bryan", "jake@jakebryan.me", "myp@ssw0rd")
+		fmt.Println("Created user with id: ", myid)
+	}
+	uid := 1
+	// for i := 0; i < 10; i++ {
+	// 	desc := fmt.Sprintf("Test order %d", i)
+	// 	_, err = db.Exec("INSERT INTO orders (user_id, amount, description) VALUES ($1, $2, $3);", uid, 1000+i, desc)
+	// 	CheckErr(err)
+	// }
+	// fmt.Println("Created fake orders")
+	var orders []OrderRow
+	rows, err := db.Query("SELECT id, amount, description FROM orders WHERE user_id=$1;", uid)
+	CheckErr(err)
+	defer rows.Close()
+	for rows.Next() {
+		out := OrderRow{UserID: uid}
+		err := rows.Scan(&out.ID, &out.Amount, &out.Description)
+		if err != nil {
+			panic(err)
+		}
+		orders = append(orders, out)
+	}
+	fmt.Println("Found orders: ", orders)
+}

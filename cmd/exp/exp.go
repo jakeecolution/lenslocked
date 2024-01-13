@@ -1,51 +1,44 @@
 package main
 
 import (
-	"html/template"
+	"fmt"
 	"os"
+
+	"github.com/jakeecolution/lenslocked/models"
+	msql "github.com/jakeecolution/lenslocked/models/sql"
+	"github.com/joho/godotenv"
 )
 
-type UserBase struct {
-	Name string
-	Age  int
-	Bio  string
-}
-
-type User struct {
-	UserBase
-	Address  string
-	Animals  []string
-	Siblings map[string]UserBase
+func CheckErr(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func main() {
-	tpl, err := template.ParseFiles("hello.gohtml")
+	err := godotenv.Load(".credentials.env")
+	CheckErr(err)
+	cfg := msql.PostgresConfig{
+		Host:     os.Getenv("POSTGRES_HOST"),
+		Port:     os.Getenv("POSTGRES_PORT"),
+		User:     os.Getenv("POSTGRES_USER"),
+		Password: os.Getenv("POSTGRES_PASSWORD"),
+		Database: os.Getenv("POSTGRES_DB"),
+		SSLMode:  false,
+	}
+	db, err := msql.Open(cfg)
+	CheckErr(err)
+	defer db.Close()
 
-	if err != nil {
-		panic(err)
+	err = db.Ping()
+	CheckErr(err)
+	fmt.Println("Connected!")
+
+	us := models.UserService{
+		DB: db,
 	}
-	user := User{
-		UserBase: UserBase{
-			Name: "Jake",
-			Age:  25,
-			Bio:  `<script>alert("Haha, you have been h4x0r3d!");</script>`,
-		},
-		Address:  "123 Main St.",
-		Animals:  []string{"Prim", "Cleo", "Bella"},
-		Siblings: make(map[string]UserBase),
-	}
-	user.Siblings["Brother"] = UserBase{
-		Name: "John",
-		Age:  27,
-		Bio:  "My brother",
-	}
-	user.Siblings["Sister"] = UserBase{
-		Name: "Jane",
-		Age:  23,
-		Bio:  "My sister",
-	}
-	err = tpl.Execute(os.Stdout, user)
-	if err != nil {
-		panic(err)
-	}
+	superuser, superpassword := os.Getenv("SUPERUSER_EMAIL"), os.Getenv("SUPERUSER_PASSWORD")
+	user, err := us.Create(&models.NewUser{Email: superuser, Password: superpassword})
+	CheckErr(err)
+	fmt.Println(user)
 }
