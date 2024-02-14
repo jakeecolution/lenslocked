@@ -1,0 +1,137 @@
+{{template "header" .}}
+<div class="py-12 flex justify-center">
+    <div class="px-8 py-8 bg-white rounded shadow">
+        <h1 class="pt-4 pb-8 text-center text-3xl font-bold text-gray-900">
+            Welcome back! {{.Email}}
+        </h1>
+        <p class="text-center text-gray-700">
+            Update your email and/or password below.
+        </p>
+        {{if .Error}}
+        <div class="bg-red-50 border border-red-400 rounded text-red-800 text-sm p-4 flex items-start" id="notification-box">
+        <div>
+            <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-4 w-4 mr-2"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            >
+            <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                clip-rule="evenodd"
+            />
+            </svg>
+        </div>
+        <div class="w-full">
+            <p>
+            <span class="font-bold">Error:</span>
+            {{.Error}}
+            </p>
+        </div>
+        <button id="notification-closer">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+        
+        <script>
+            document.getElementById("notification-closer").addEventListener("click", function() {
+                document.getElementById("notification-box").classList.add("hidden");
+            });
+        </script>
+        {{end}}
+        {{if .Success}}
+        <div class="px-8 py-6 bg-green-400 text-white flex justify-between rounded" id="notification-box">
+            <div class="flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 mr-6" viewBox="0 0 20 20" fill="currentColor">
+                    <path
+                        d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z"
+                    />
+                </svg>
+                <p>Successfully updated your account</p>
+            </div>
+            <button class="text-green-100 hover:text-white" id="notification-closer">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <script>
+                document.getElementById("notification-closer").addEventListener("click", function() {
+                    document.getElementById("notification-box").classList.add("hidden");
+                });
+            </script>
+        </div>
+        {{end}}
+      <form action="/users/update" method="post">
+        <div class="py-2">
+          <label for="email" class="text-sm font-semibold text-gray-800">
+            Email Address
+          </label>
+          <input
+            name="email"
+            id="email"
+            type="email"
+            placeholder="Email address"
+            required
+            autocomplete="email"
+            class="w-full px-3 py-2 border border-gray-300 placeholder-gray-500
+              text-gray-800 rounded"
+            value="{{.Email}}"
+            {{if not .Email}}autofocus{{end}}
+          />
+        </div>
+        <div class="py-2">
+          <label for="password" class="text-sm font-semibold text-gray-800">
+            Password
+          </label>
+          <input
+            name="password"
+            id="password"
+            type="password"
+            placeholder="Password"
+            class="w-full px-3 py-2 border border-gray-300 placeholder-gray-500
+              text-gray-800 rounded"
+            {{if .Email}}autofocus{{end}}
+          />
+        </div>
+        <div>
+            <label for="password_confirm" class="text-sm font-semibold text-gray-800">
+                Confirm Password
+            </label>
+            <input 
+                type="password"
+                name="password_confirm"
+                id="password_confirm"
+                placeholder="Reenter Password"
+                class="w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-800 rounded"
+            />
+        </div>
+        <div class="py-4">
+          <button class="w-full py-4 px-2 bg-indigo-600 hover:bg-indigo-700
+            text-white rounded font-bold text-lg">
+            Update
+          </button>
+        </div>
+        <div class="hidden">
+            <input type="hidden" name="_method" value="PUT">
+        </div>
+        <div class="hidden">
+          {{csrfField}}
+        </div>
+      </form>
+    </div>
+  </div>
+{{template "footer" .}}

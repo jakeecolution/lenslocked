@@ -9,12 +9,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/csrf"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/jakeecolution/lenslocked/controllers"
+	"github.com/jakeecolution/lenslocked/migrations"
 	"github.com/jakeecolution/lenslocked/models"
 	msql "github.com/jakeecolution/lenslocked/models/sql"
 	"github.com/jakeecolution/lenslocked/templates"
 	"github.com/jakeecolution/lenslocked/views"
+
 	"github.com/joho/godotenv"
 )
 
@@ -61,6 +64,25 @@ func CheckErr(err error) {
 	}
 }
 
+// putConversion is a middleware component that checks for the combination of a
+// POST method with a form field named _method having a value of PUT. This is the
+// convention for how to establish a PUT method for form submission in a restful API.
+// It should run early in the middleware stack.
+func putConversion(next http.Handler) http.Handler {
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "POST" {
+				r.ParseForm()
+				if r.Form["_method"] != nil && r.FormValue("_method") == "PUT" {
+					r.Method = "PUT"
+				} else if r.Form["_method"] != nil && r.FormValue("_method") == "DELETE" {
+					r.Method = "DELETE"
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+}
+
 func main() {
 	err := godotenv.Load(".credentials.env")
 	CheckErr(err)
@@ -69,6 +91,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(putConversion)
 	//r.Mount("/api/v1", v1.ApiRouter())
 	homeTpl := views.Must(views.ParseFS(templates.FS, "home.gohtml", "tailwind.gohtml"))
 	contactTpl := views.Must(views.ParseFS(templates.FS, "contact.gohtml", "tailwind.gohtml"))
@@ -97,11 +120,21 @@ func main() {
 	CheckErr(err)
 	defer db.Close()
 
+	err = models.MigrateFS(db, migrations.FS, ".")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	var usersC controllers.Users
 	usersC.UserService = &models.UserService{
 		DB: db,
 	}
+	usersC.SessionService = &models.SessionService{
+		DB: db,
+	}
 	usersC.Templates.New = views.Must(views.ParseFS(templates.FS, "signup.gohtml", "tailwind.gohtml"))
+	usersC.Templates.SignIn = views.Must(views.ParseFS(templates.FS, "signin.gohtml", "tailwind.gohtml"))
+	usersC.Templates.CurrentUser = views.Must(views.ParseFS(templates.FS, "currentuser.gohtml", "tailwind.gohtml"))
 	r.Get("/", controllers.StaticHandler(homeTpl, nil))
 
 	r.Get("/contact", controllers.StaticHandler(contactTpl, myAdmin))
@@ -109,7 +142,11 @@ func main() {
 	r.Get("/about", controllers.StaticHandler(aboutTpl, myAdmin))
 	r.Get("/signup", usersC.New)
 	r.Post("/signup", usersC.Create)
-
+	r.Get("/signin", usersC.SignIn)
+	r.Post("/signin", usersC.ProcessSignIn)
+	r.Post("/signout", usersC.ProcessSignOut)
+	r.Get("/users/me", usersC.CurrentUser)
+	r.Put("/users/update", usersC.ProcessUserUpdate)
 	// r.Post("/hotels", addHotel)
 	// r.Get("/hotels", func(w http.ResponseWriter, r *http.Request) {
 	// 	w.Header().Set("Content-Type", "application/json")
@@ -125,6 +162,12 @@ func main() {
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Page not found", http.StatusNotFound)
 	})
+	csrfKey := os.Getenv("CSRF_KEY")
+	csrfMw := csrf.Protect(
+		[]byte(csrfKey),
+		// TODO: Fix this before deploying
+		csrf.Secure(false),
+	)
 	log.Println("Starting server at http://localhost:8081...")
-	http.ListenAndServe(":8081", r)
+	http.ListenAndServe(":8081", csrfMw(r))
 }

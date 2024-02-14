@@ -60,3 +60,27 @@ func (us *UserService) Create(user NewUser) (*User, error) {
 	}
 	return u, nil
 }
+
+func (us *UserService) Update(user *User) error {
+	row := us.DB.QueryRow(`UPDATE users SET email = $1, hashed_password = $2, updated_at = NOW() WHERE id = $3 RETURNING updated_at`, strings.ToLower(user.Email), user.HashedPassword, user.ID)
+	err := row.Scan(&user.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (us UserService) Authenticate(email, password string) (*User, error) {
+	u := User{
+		Email: email,
+	}
+	row := us.DB.QueryRow(`SELECT id, hashed_password FROM users WHERE email = $1`, strings.ToLower(email))
+	err := row.Scan(&u.ID, &u.HashedPassword)
+	if err != nil {
+		return nil, err
+	}
+	if !u.ComparePass(password) {
+		return nil, fmt.Errorf("invalid password")
+	}
+	return &u, nil
+}

@@ -5,13 +5,9 @@ import (
 	"net/http"
 )
 
-type Static struct {
-	Template Template
-}
-
 func StaticHandler(tpl Template, data interface{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tpl.Execute(w, data)
+		tpl.Execute(w, r, data)
 	}
 }
 
@@ -33,5 +29,7 @@ func FAQ(tpl Template) http.HandlerFunc {
 			Answer:   `Email us - <a href="mailto:support@lenslocked.com">support@lenslocked.com</a>`,
 		},
 	}
-	return StaticHandler(tpl, questions)
+	return func(w http.ResponseWriter, r *http.Request) {
+		tpl.Execute(w, r, questions)
+	}
 }
